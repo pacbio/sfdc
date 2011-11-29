@@ -1,3 +1,9 @@
+/**
+*This queries the Question table (aka Answers) for
+*the User email that corresponds.
+*It then emails a notification to any User that has replied this 
+*notificiation.
+*/
 trigger AnswerThreadNotification on Question (after insert) 
 {      
     //do a deeper query of all question objects in the trigger array
