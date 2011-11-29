@@ -1,0 +1,133 @@
+trigger AnswerThreadParticipantNotification on Reply (after insert) 
+{      
+    for(Reply rply: Trigger.new)
+    {
+        //confirm the question id
+        if(rply.QuestionId == null)
+        {
+            System.debug('AnswerThreadParticipantNotification: reply.QuestionId was null for reply id: ' + rply.ID);
+            continue;
+        }
+        //do a deeper query of the question object
+        Question qstn =   
+            [
+                select
+                    ID,
+                    CreatedById, 
+                    LastReplyId,
+                    LastModifiedById,
+                    CommunityId,
+                    NumReplies,
+                    BestReplyId,
+                    Body, 
+                    Title  
+                from 
+                    Question 
+                where 
+                    Id = :rply.QuestionId limit 1
+            ];
+
+        //confirm the deep question query returned an object
+        if(qstn == null)
+        {
+            System.debug('AnswerThreadParticipantNotification: query of question fields failed for reply id: ' + rply.ID);
+            continue;
+        }
+        String body;
+        String title = qstn.Title;
+        //use a map instead of set to automatically purge dupes 
+        //when loading user ids from sibling reply objects
+        Map<ID,User> mUser = new Map<ID,User>();
+
+        if(qstn.CreatedById != null)
+        {
+            mUser.put(qstn.CreatedById,null);
+        }
+        
+        if(qstn.LastModifiedById!= null && qstn.CreatedById != qstn.LastModifiedById)
+        {
+            mUser.put(qstn.LastModifiedById,null);
+        }
+                
+        if(qstn.Title.length() > 100)
+        {
+            title = title.substring(0,100);
+        }                   
+        
+        //obtain all sibling replies to this question
+        List<Reply> lReplySiblings = [
+            select
+                ID,
+                CreatedById, 
+                IsDeleted,
+                QuestionId,
+                LastModifiedById,
+                LastModifiedDate,
+                Body, 
+                Name
+            from 
+                Reply
+            where 
+                QuestionId = :qstn.ID order by LastModifiedDate];            
+           
+        if(lReplySiblings.size() < 1)
+        {
+            System.debug('AnswerThreadParticipantNotification: query of sibling replies failed for question id: ' + qstn.ID);
+            continue;
+        }
+        System.debug('AnswerThreadParticipantNotification: query of sibling replies count: ' + lReplySiblings.size());
+        
+        // Put the required user ids in a Set. 
+        for(Reply rsib: lReplySiblings)
+        {     
+            if(rply.CreatedById != null)
+            {
+                mUser.put(rply.CreatedById,null);
+            }
+            if(rply.LastModifiedById != null && rply.LastModifiedById != rply.CreatedById)
+            {
+                mUser.put(rply.LastModifiedById,null);
+            }
+        }
+        
+        mUser = new Map<Id, User>([SELECT ID, FirstName, LastName,Email FROM User WHERE ID in:mUser.keySet()]);                                  
+
+        if(mUser.size() < 1)
+        {
+            System.debug('AnswerThreadParticipantNotification: mUser map was empty for reply id: ' + rply.ID);
+            continue;
+        }
+        
+        System.debug('AnswerThreadParticipantNotification: query of reply userids count: ' + mUser.size());
+        List<String> addressToList = new List<String>();
+        
+        for(User quser: mUser.values())
+        {
+            System.debug('AnswerThreadParticipantNotification: sibling reply user email: ' + quser.email);
+            addressToList.add(quser.email);
+        }
+        
+        body = 'Your new discussion topic was posted in PacBio Discussions:'
+        +'\n\nOriginal Post Title:'
+        +'\n'
+        +title           
+        +'\n\nReply:'
+        +'\n'
+        +rply.Name           
+        +'\n\nYou will receive an email if someone else comments.'
+        +'\n\nView or Reply to the Original Post at this web address: ' 
+        +'\n\nhttps://login.salesforce.com/answers/viewQuestion.apexp?id='+qstn.ID;
+        //+'\n\nrefid:'
+        //+qstn.ID          
+       // +':refid:';
+        
+        title = 'PacBio Discussion: ' + title;
+
+        
+        EmailHandler eh = new EmailHandler(); 
+        User uReply = mUser.get(rply.CreatedById);   
+        eh.sendMail(addressToList,uReply.email,title,body);                                         
+        
+    }
+}
+
