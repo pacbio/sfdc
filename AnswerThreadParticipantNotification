@@ -1,3 +1,10 @@
+/**
+*This queries the Reply table for any reply object with related
+*QuestionId. It then looks up the User email that corresponds.
+*It then emails a notification to any User that has replied this 
+*notificiation.
+*/
+
 trigger AnswerThreadParticipantNotification on Reply (after insert) 
 {      
     for(Reply rply: Trigger.new)
